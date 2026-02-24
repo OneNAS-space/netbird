@@ -41,7 +41,7 @@ jobs:
       - name: 🧰 Set up netbird feed structure
         run: |
           set -e
-          mkdir -p feed/jackie264
+          mkdir -p feed/jackie264/${PKG_NAME}
           printf 'include $(TOPDIR)/feed/jackie264/*/Makefile\n' > feed/jackie264/custom.mk
 
           rsync -av \
@@ -52,6 +52,8 @@ jobs:
             --exclude='README.md' \
             --exclude='SECURITY.md' \
             ./ feed/jackie264/${PKG_NAME}/
+
+          ls -R feed/
           
       - name: 🧮 Compute ARCH
         run: |
