@@ -3,7 +3,7 @@ name: Build OpenWrt Package
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["Check And Calculate PKG_HASH"] # 匹配刚才修改的上游工作流名称
+    workflows: ["Check And Calculate PKG_HASH"]
     types:
       - completed
 
@@ -73,8 +73,7 @@ jobs:
       - name: 🧰 Set up netbird feed structure
         run: |
           set -e
-          mkdir -p feed/onenas
-          printf 'include $(TOPDIR)/feed/onenas/*/Makefile\n' > feed/onenas/custom.mk
+          mkdir -p feed/${PKG_NAME}
 
           rsync -av \
             --exclude='.git/' \
@@ -83,7 +82,7 @@ jobs:
             --exclude='LICENSE' \
             --exclude='README.md' \
             --exclude='SECURITY.md' \
-            ./ feed/onenas/${PKG_NAME}/
+            ./ feed/${PKG_NAME}/
 
           
       - name: 🧮 Compute ARCH
@@ -100,7 +99,13 @@ jobs:
           FEED_DIR: ${{ github.workspace }}/feed
           NO_SHFMT_CHECK: 1
           NO_REFRESH_CHECK: 1
-          
+          PRE_BUILD_COMMAND: |
+            echo "Removing upstream netbird to avoid conflict..."
+            find feeds/packages -name "netbird" -type d -exec rm -rf {} +
+            echo "Updating feed index..."
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
+
       - name: 🔍 Debug build output
         run: |
           echo "=== Build directory structure ==="
