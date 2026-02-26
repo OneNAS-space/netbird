@@ -2,7 +2,7 @@ name: Check And Calculate PKG_HASH
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每天午夜运行一次
+    - cron: '0 0 * * *'
   workflow_dispatch:
   push:
     branches:
@@ -27,17 +27,15 @@ jobs:
         id: check
         run: |
           set -euo pipefail
-
           # 1. 获取本地 Makefile 中的当前版本
           CURRENT_VER=$(grep '^PKG_VERSION:=' Makefile | awk -F= '{print $2}' | tr -d '[:space:]')
-          
-          # 2. 通过 GitHub API 获取 netbird 的最新 Release Tag (并去掉 'v' 前缀)
+          # 2. 获取最新 Release Tag
           REMOTE_VER=$(curl -s "https://api.github.com/repos/netbirdio/netbird/releases/latest" | jq -r '.tag_name' | sed 's/^v//')
           
           echo "Current: $CURRENT_VER"
           echo "Remote:  $REMOTE_VER"
 
-          if [ -z "$REMOTE_VER" ] || [ "$REMOTE_VER" = "null" ]; then
+          if [ "$REMOTE_VER" = "null" ] || [ -z "$REMOTE_VER" ]; then
             echo "❌ Failed to get remote version."
             exit 1
           fi
@@ -45,54 +43,87 @@ jobs:
           if [ "$CURRENT_VER" = "$REMOTE_VER" ]; then
             echo "✅ Already up to date."
             echo "updated=false" >> $GITHUB_OUTPUT
-            exit 0
+          else
+            echo "🚀 New version found: $REMOTE_VER"
+            # 先更新版本号，以便后续 SDK 脚本能识别新版本下载链接
+            sed -i "s|^PKG_VERSION:=.*|PKG_VERSION:=$REMOTE_VER|" Makefile
+            echo "updated=true" >> $GITHUB_OUTPUT
+            echo "new_ver=$REMOTE_VER" >> $GITHUB_OUTPUT
           fi
 
-          echo "🚀 New version found! Updating Makefile..."
+      - name: 📥 Get SDK Fingerprint (sha256sums)
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          # 使用 24.10.5 x86_64 作为计算哈希的标准环境
+          BASE_URL="https://downloads.openwrt.org/releases/24.10.5/targets/x86/64"
+          wget -q ${BASE_URL}/sha256sums
+          SDK_HASH=$(grep "openwrt-sdk" sha256sums | awk '{print $1}')
+          SDK_FILE=$(grep "openwrt-sdk" sha256sums | awk '{print $2}' | sed 's/^\*//')
+          echo "SDK_HASH=$SDK_HASH" >> $GITHUB_ENV
+          echo "SDK_FILE=$SDK_FILE" >> $GITHUB_ENV
+          echo "BASE_URL=$BASE_URL" >> $GITHUB_ENV
 
-          # 3. 替换 Makefile 中的 PKG_VERSION
-          sed -i "s|^PKG_VERSION:=.*|PKG_VERSION:=$REMOTE_VER|" Makefile
+      - name: ♻️ Cache OpenWrt SDK
+        id: cache
+        if: steps.check.outputs.updated == 'true'
+        uses: actions/cache@v4
+        with:
+          path: openwrt-sdk
+          key: sdk-calc-${{ env.SDK_HASH }}
 
-          echo "updated=true" >> $GITHUB_OUTPUT
-          echo "new_ver=$REMOTE_VER" >> $GITHUB_OUTPUT
+      - name: 📦 Download & Extract OpenWrt SDK
+        if: steps.check.outputs.updated == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          wget -q ${{ env.BASE_URL }}/${{ env.SDK_FILE }}
+          echo "${{ env.SDK_HASH }}  ${{ env.SDK_FILE }}" | sha256sum -c -
+          tar -I zstd -xf ${{ env.SDK_FILE }}
+          mv openwrt-sdk-* openwrt-sdk
 
-      - name: 📥 Download source and Calculate Hash manually
+      - name: 🔍 Download and Calculate Hash via SDK
         id: calc
         if: steps.check.outputs.updated == 'true'
         run: |
-          NEW_VER=${{ steps.check.outputs.new_ver }}
+          # 1. 准备 SDK 目录结构
+          mkdir -p openwrt-sdk/package/netbird
+          cp Makefile openwrt-sdk/package/netbird/
+          [ -d "files" ] && cp -r files openwrt-sdk/package/netbird/
+
+          cd openwrt-sdk
+          # 2. 必须更新 feed 否则 SDK 无法识别 golang 相关宏
+          ./scripts/feeds update packages
+          ./scripts/feeds install golang
+
+          # 3. 强制 SDK 下载源码 (跳过旧哈希校验)
+          echo "⬇️ Downloading source via SDK..."
+          make package/netbird/download PKG_HASH=skip V=s
           
-          # 拼接对应版本的源码包下载链接 (对应 Makefile 中的 PKG_SOURCE_URL)
-          TAR_URL="https://codeload.github.com/netbirdio/netbird/tar.gz/v${NEW_VER}?"
-          
-          echo "⬇️ Downloading source: $TAR_URL"
-          wget -qO netbird.tar.gz "$TAR_URL"
-          
-          # 4. 计算 SHA256 Hash
-          NEW_HASH=$(sha256sum netbird.tar.gz | awk '{print $1}')
-          echo "🧮 Calculated Hash: $NEW_HASH"
-          
-          if [ -z "$NEW_HASH" ]; then
-            echo "❌ Failed to calculate new hash."
+          # 4. 提取下载文件的哈希值
+          # Netbird 下载的文件名通常是 netbird-x.x.x.tar.gz
+          DOWNLOADED_FILE=$(find dl -type f -name "netbird-*.tar.gz" | head -n 1)
+          if [ -z "$DOWNLOADED_FILE" ]; then
+            echo "❌ Download failed."
             exit 1
           fi
-          
-          # 5. 替换 Makefile 中的 PKG_HASH
-          sed -i "s|^PKG_HASH:=.*|PKG_HASH:=$NEW_HASH|" Makefile
+          NEW_HASH=$(sha256sum "$DOWNLOADED_FILE" | awk '{print $1}')
+          echo "🧮 Calculated PKG_HASH: $NEW_HASH"
+          echo "NEW_HASH=$NEW_HASH" >> $GITHUB_OUTPUT
 
-      - name: 📝 Commit and Push changes
+      - name: 📝 Update Makefile and Push
         if: steps.check.outputs.updated == 'true'
         run: |
+          NEW_HASH="${{ steps.calc.outputs.NEW_HASH }}"
+          NEW_VER="${{ steps.check.outputs.new_ver }}"
+          
+          # 回填正确的哈希值
+          sed -i "s|^PKG_HASH:=.*|PKG_HASH:=$NEW_HASH|" Makefile
+          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Makefile
           
-          # 检查是否有文件改动，避免空提交报错
           if git diff-index --quiet HEAD --; then
-            echo "ℹ️ No changes to commit."
-            exit 0
+            echo "ℹ️ No changes."
+          else
+            git commit -m "chore: update netbird to v$NEW_VER and fix PKG_HASH"
+            git push
           fi
-          
-          NEW_VER=${{ steps.check.outputs.new_ver }}
-          git commit -m "chore: update netbird to v$NEW_VER"
-          git push
