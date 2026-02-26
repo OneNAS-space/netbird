@@ -70,39 +70,35 @@ jobs:
           PKG_NAME=$(grep -E '^PKG_NAME[:?]?=' Makefile | head -n1 | sed -E 's/PKG_NAME[:?]?= *//')
           echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
 
-      - name: 🧰 Set up netbird feed structure
-        run: |
-          set -e
-          mkdir -p custom_feed/${PKG_NAME}
-
-          rsync -av \
-            --exclude='.git/' \
-            --exclude='custom_feed/' \
-            --exclude='.github/' \
-            --exclude='LICENSE' \
-            --exclude='README.md' \
-            --exclude='SECURITY.md' \
-            ./ custom_feed/${PKG_NAME}/
-
-          cat > feeds.conf <<EOF
-          src-link custom ${{ github.workspace }}/custom_feed
-          src-git base https://github.com/openwrt/openwrt.git;openwrt-24.10
-          src-git packages https://github.com/openwrt/packages.git;openwrt-24.10
-          EOF
-
-          
-      - name: 🧮 Compute ARCH
-        run: |
-          echo "ARCH=${{ matrix.target }}-${{ matrix.version }}" >> "$GITHUB_ENV"
-
       - name: 🏗️ Build with OpenWrt SDK
         uses: openwrt/gh-action-sdk@v10
         env:
-          ARCH: ${{ env.ARCH }}
+          ARCH: ${{ matrix.target }}-${{ matrix.version }}
           PACKAGES: ${{ env.PKG_NAME }}
-          FEEDS_CONF: ${{ github.workspace }}/feeds.conf
           NO_SHFMT_CHECK: 1
           NO_REFRESH_CHECK: 1
+          COMMAND: |
+            set -x
+            # 1. 强制更新并安装所有 feed，确保基础环境（golang等）存在
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
+            
+            # 2. 彻底删除官方源里的 netbird 文件夹
+            # 官方路径通常在 feeds/packages/net/netbird
+            find feeds/ -name "netbird" -type d -exec rm -rf {} +
+            
+            # 3. 在 package 目录下创建一个新的 netbird 目录
+            mkdir -p package/${{ env.PKG_NAME }}
+            
+            # 4. 把我们当前的 Makefile 及其相关文件拷进去
+            # 因为我们在 SDK 容器内，当前目录就是仓库根目录
+            cp -r Makefile files/ ./package/${{ env.PKG_NAME }}/
+            
+            # 5. 再次修正索引，确保 SDK 识别到我们的新版本
+            make package/${{ env.PKG_NAME }}/dump
+            
+            # 6. 执行编译
+            make package/${{ env.PKG_NAME }}/compile V=s
 
       - name: 🔍 Debug build output
         run: |
