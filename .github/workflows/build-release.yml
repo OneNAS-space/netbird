@@ -73,16 +73,22 @@ jobs:
       - name: 🧰 Set up netbird feed structure
         run: |
           set -e
-          mkdir -p feed/${PKG_NAME}
+          mkdir -p custom_feed/${PKG_NAME}
 
           rsync -av \
             --exclude='.git/' \
-            --exclude='feed/' \
+            --exclude='custom_feed/' \
             --exclude='.github/' \
             --exclude='LICENSE' \
             --exclude='README.md' \
             --exclude='SECURITY.md' \
-            ./ feed/${PKG_NAME}/
+            ./ custom_feed/${PKG_NAME}/
+
+          cat > feeds.conf <<EOF
+          src-link custom ${{ github.workspace }}/custom_feed
+          src-git base https://github.com/openwrt/openwrt.git;openwrt-24.10
+          src-git packages https://github.com/openwrt/packages.git;openwrt-24.10
+          EOF
 
           
       - name: 🧮 Compute ARCH
@@ -93,18 +99,10 @@ jobs:
         uses: openwrt/gh-action-sdk@v10
         env:
           ARCH: ${{ env.ARCH }}
-          FEEDNAME: onenas
           PACKAGES: ${{ env.PKG_NAME }}
-          INDEX: 0
-          FEED_DIR: ${{ github.workspace }}/feed
+          FEEDS_CONF: ${{ github.workspace }}/feeds.conf
           NO_SHFMT_CHECK: 1
           NO_REFRESH_CHECK: 1
-          PRE_BUILD_COMMAND: |
-            echo "Removing upstream netbird to avoid conflict..."
-            find feeds/packages -name "netbird" -type d -exec rm -rf {} +
-            echo "Updating feed index..."
-            ./scripts/feeds update -a
-            ./scripts/feeds install -a
 
       - name: 🔍 Debug build output
         run: |
