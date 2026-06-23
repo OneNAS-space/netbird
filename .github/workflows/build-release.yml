@@ -120,6 +120,7 @@ jobs:
             ./ feed/jackie264/${PKG_NAME}/
 
           sed -i 's|../../lang/golang/golang-package.mk|$(TOPDIR)/feeds/packages/lang/golang/golang-package.mk|g' feed/jackie264/${PKG_NAME}/Makefile
+          rm -f feed/jackie264/${PKG_NAME}/patches/0100-client_update_gvisor_to_build_with_Go_1.26.x.patch
 
       - name: 🏗️ Build with OpenWrt SDK
         uses: openwrt/gh-action-sdk@v11
