@@ -8,7 +8,7 @@ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/netbirdio/netbird/tar.gz/v$(PKG_VERSION)?
 PKG_HASH:=ba8d1615a6676e6d17f5d4a3c8027cd2e7437c862da3f963d3b337c09efff423
 
-PKG_MAINTAINER:=Wesley Gimenes <wehagy@proton.me>
+PKG_MAINTAINER:=Jackie264 <OneNAS-space>
 PKG_LICENSE:=BSD-3-Clause
 PKG_LICENSE_FILES:=LICENSE
 
