@@ -41,7 +41,8 @@ define Package/netbird/description
 endef
 
 define Package/netbird/conffiles
-/root/.config/netbird/
+/etc/config/netbird
+/etc/netbird/
 endef
 
 define Package/netbird/install
@@ -49,6 +50,8 @@ define Package/netbird/install
 	$(INSTALL_DIR) $(1)/usr/bin $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/client $(1)/usr/bin/netbird
 	$(INSTALL_BIN) ./files/netbird.init $(1)/etc/init.d/netbird
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./files/netbird.config $(1)/etc/config/netbird
 endef
 
 $(eval $(call GoBinPackage,netbird))
