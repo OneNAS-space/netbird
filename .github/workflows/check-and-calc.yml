@@ -2,8 +2,8 @@ name: Auto Update Netbird Makefile
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每天运行一次
-  workflow_dispatch:      # 允许手动触发
+    - cron: '0 0 * * *'
+  workflow_dispatch:
   push:
     branches:
       - "main"
@@ -27,8 +27,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 1. 获取当前 Makefile 中的版本号
-          # 使用 || true 防止 grep 找不到时触发 set -e 导致脚本退出
           CURRENT_VER=$(grep '^PKG_VERSION:=' Makefile | awk -F= '{print $2}' | tr -d '[:space:]' || true)
           echo "Current Version: $CURRENT_VER"
 
@@ -37,7 +35,6 @@ jobs:
             exit 1
           fi
 
-          # 2. 从 GitHub API 获取 Netbird 的最新 Release Tag (去掉前面的 'v')
           LATEST_TAG=$(curl -s "https://api.github.com/repos/netbirdio/netbird/releases/latest" | jq -r '.tag_name' | sed 's/^v//')
           echo "Latest Version:  $LATEST_TAG"
 
@@ -46,7 +43,6 @@ jobs:
             exit 1
           fi
 
-          # 3. 版本对比
           if [ "$CURRENT_VER" = "$LATEST_TAG" ]; then
             echo "✅ Package is already up to date ($CURRENT_VER)."
             exit 0
@@ -54,8 +50,6 @@ jobs:
 
           echo "🚀 New version found! Updating from $CURRENT_VER to $LATEST_TAG..."
 
-          # 4. 直接下载最新的 tar.gz 并计算 SHA256 Hash
-          # 这个 URL 必须与你 Makefile 中的 PKG_SOURCE_URL 结构保持一致
           TAR_URL="https://codeload.github.com/netbirdio/netbird/tar.gz/v${LATEST_TAG}"
           echo "Downloading source to calculate hash..."
           NEW_HASH=$(curl -sL "$TAR_URL" | sha256sum | awk '{print $1}')
@@ -66,18 +60,15 @@ jobs:
             exit 1
           fi
 
-          # 5. 替换 Makefile 中的变量
           sed -i "s|^PKG_VERSION:=.*|PKG_VERSION:=$LATEST_TAG|" Makefile
           sed -i "s|^PKG_HASH:=.*|PKG_HASH:=$NEW_HASH|" Makefile
-          # 如果你的包有 PKG_RELEASE，更新大版本时通常将其重置为 1
-          sed -i "s|^PKG_RELEASE:=.*|PKG_RELEASE:=1|" Makefile 
+          sed -i "s|^PKG_RELEASE:=.*|PKG_RELEASE:=1|" Makefile
+          sed -i 's|^PKG_MAINTAINER:=.*|PKG_MAINTAINER:=Jackie264 <OneNAS-space>|' Makefile
 
-          # 6. 提交并推送到仓库
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Makefile
           
-          # 只有在确实有修改的情况下才 commit
           if git diff --staged --quiet; then
             echo "ℹ️ No changes to commit."
           else
