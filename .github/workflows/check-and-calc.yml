@@ -35,7 +35,7 @@ jobs:
             exit 1
           fi
 
-          LATEST_TAG=$(curl -s "https://api.github.com/repos/netbirdio/netbird/releases/latest" | jq -r 'tag_name' | sed 's/^v//')
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/netbirdio/netbird/releases/latest" | jq -r '.tag_name' | sed 's/^v//')
           echo "Latest Version:  $LATEST_TAG"
 
           if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
